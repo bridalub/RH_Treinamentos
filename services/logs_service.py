@@ -1,9 +1,10 @@
 """Auditoria de ações do sistema (logs.csv)."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pandas as pd
 
 from utils.csv_io import ler_csv, salvar_csv, inserir_linha
+from utils.formatacao import agora_br
 
 COLUNAS = ["log_id", "data_hora", "usuario", "acao", "detalhes"]
 
@@ -33,7 +34,7 @@ def registrar(usuario: str, acao: str, detalhes: str = "") -> None:
     simultâneas se sobrescreverem)."""
     nova_linha = {
         "log_id": _proximo_log_id(carregar_logs()),
-        "data_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "data_hora": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
         "usuario": usuario,
         "acao": acao,
         "detalhes": detalhes,
@@ -56,7 +57,11 @@ def limpar_logs_antigos(dias: int | None) -> int:
         return removidos
 
     datas = pd.to_datetime(df["data_hora"], errors="coerce")
-    corte = datetime.now() - timedelta(days=dias)
+    # sem tzinfo (.replace(tzinfo=None)): "datas" acima vem de strings sem
+    # fuso gravado, então é naive — comparar direto contra um datetime com
+    # tzinfo quebraria com TypeError. O valor de agora_br() já está certo
+    # (horário de Brasília); só tira a marca de fuso pra poder comparar.
+    corte = agora_br().replace(tzinfo=None) - timedelta(days=dias)
     mascara_manter = datas >= corte
     removidos = int((~mascara_manter).sum())
     if removidos:

@@ -1,12 +1,12 @@
 """CRUD e autenticação de usuários do sistema (usuarios.csv)."""
 import os
-from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
 from utils.csv_io import ler_csv, salvar_csv
 from utils.auth import hash_senha, verificar_senha
+from utils.formatacao import agora_br
 
 COLUNAS = ["usuario_id", "login", "nome", "senha_hash", "perfil", "ativo", "criado_em", "ultimo_login"]
 
@@ -45,7 +45,7 @@ def _seed_admin(df: pd.DataFrame) -> pd.DataFrame:
         "senha_hash": hash_senha(_senha_admin_padrao()),
         "perfil": "ADMIN",
         "ativo": "True",
-        "criado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "criado_em": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
         "ultimo_login": "",
     }
     df = pd.DataFrame([linha], columns=COLUNAS)
@@ -62,7 +62,7 @@ def autenticar(login: str, senha: str) -> dict | None:
     if not verificar_senha(senha, linha["senha_hash"]):
         return None
 
-    df.loc[df["usuario_id"] == linha["usuario_id"], "ultimo_login"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    df.loc[df["usuario_id"] == linha["usuario_id"], "ultimo_login"] = agora_br().strftime("%Y-%m-%d %H:%M:%S")
     salvar_csv("usuarios", df)
     return linha.to_dict()
 
@@ -82,7 +82,7 @@ def criar_usuario(login: str, nome: str, senha: str, perfil: str) -> tuple[bool,
         "senha_hash": hash_senha(senha),
         "perfil": perfil,
         "ativo": "True",
-        "criado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "criado_em": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
         "ultimo_login": "",
     }
     df = pd.concat([df, pd.DataFrame([nova_linha], columns=COLUNAS)], ignore_index=True)

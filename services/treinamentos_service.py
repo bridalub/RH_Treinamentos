@@ -1,11 +1,11 @@
 """Importação e consultas sobre treinamentos.csv, gerado a partir da aba oficial DTB Bridalub - Por Usuário (2)."""
 import hashlib
-from datetime import datetime
 
 import pandas as pd
 
 from utils.csv_io import ler_csv, salvar_csv
 from utils.excel_import import ler_planilha_treinamentos
+from utils.formatacao import agora_br
 from utils.normalizacao import normalizar_nome
 from services import matching_service as ms
 from services.colaboradores_service import nomes_normalizados_validos
@@ -55,7 +55,7 @@ def importar_treinamentos(caminho_arquivo, df_colaboradores: pd.DataFrame, df_ov
     resultados = ms.aplicar_overrides(resultados, df_overrides)
 
     mapa_exibicao = _mapa_nomes_exibicao(df_colaboradores)
-    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    agora = agora_br().strftime("%Y-%m-%d %H:%M:%S")
 
     linhas = []
     for _, linha in df_bruto.iterrows():

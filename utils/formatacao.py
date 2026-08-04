@@ -1,5 +1,7 @@
 """Formatação de datas e números no padrão brasileiro, usada em todas as telas."""
 import math
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -7,6 +9,20 @@ MESES = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ]
+
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+
+def agora_br() -> datetime:
+    """'Agora', sempre no horário de Brasília — independente do fuso horário
+    do processo que está rodando o app. No Windows local isso já é BRT (não
+    muda nada na prática), mas o container do Streamlit Community Cloud roda
+    em UTC: todo timestamp gravado com datetime.now() puro ficava ~3h
+    adiantado em relação ao horário real, sem erro nenhum aparente — só
+    percebido comparando com o relógio de verdade (ex.: "Última atualização"
+    mostrando 22:55 com o relógio marcando 20:01). Usada em todo lugar que
+    hoje usa datetime.now() para gravar ou exibir "agora"."""
+    return datetime.now(FUSO_BR)
 
 
 def formatar_numero_br(valor, casas_decimais: int = 0) -> str:

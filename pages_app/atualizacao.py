@@ -1,6 +1,4 @@
 """Atualização de Treinamentos: importação manual/automática + Revisão de Correspondências."""
-from datetime import datetime
-
 import streamlit as st
 
 from components import cards, tables
@@ -13,7 +11,7 @@ from services import matching_service as ms
 from utils.auth import usuario_atual
 from utils.csv_io import salvar_estado
 from utils.excel_import import AbaOficialNaoEncontradaError, ColunaEsperadaNaoEncontradaError
-from utils.formatacao import formatar_numero_br as _fmt
+from utils.formatacao import formatar_numero_br as _fmt, agora_br
 from utils.normalizacao import normalizar_nome
 
 
@@ -160,7 +158,7 @@ def _secao_treinamentos():
         backup = salvar_treinamentos(df_novo)
         salvar_estado("ultima_importacao_treinamentos", resumo["metadados_relatorio"])
         usuario = usuario_atual()
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        agora = agora_br().strftime("%d/%m/%Y %H:%M")
         registrar(
             usuario["login"] if usuario else "sistema", "IMPORTAR_TREINAMENTOS",
             f"novos={resumo.get('novos')} atualizados={resumo.get('atualizados')} "

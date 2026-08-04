@@ -1,10 +1,9 @@
 """Importação e consultas sobre colaboradores.csv, gerado a partir de BASE FUNCIONÁRIOS BRIDA."""
-from datetime import datetime
-
 import pandas as pd
 
 from utils.csv_io import ler_csv, salvar_csv
 from utils.excel_import import ler_planilha_colaboradores
+from utils.formatacao import agora_br
 from utils.normalizacao import normalizar_nome, normalizar_texto, esta_vazio
 from services.colaboradores_ajustes_service import carregar_ajustes
 
@@ -97,7 +96,7 @@ def aplicar_ajustes(df: pd.DataFrame, df_ajustes: pd.DataFrame) -> pd.DataFrame:
                 "equipe_id": ajuste["equipe_id"], "cargo": ajuste["cargo"],
                 "email": ajuste["email"], "celular": ajuste["celular"],
                 "horario_trabalho": ajuste["horario_trabalho"], "gestor_nome": ajuste["gestor_nome"],
-                "is_pessoa_valida": "True", "atualizado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "is_pessoa_valida": "True", "atualizado_em": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
                 "_chave": f"{nome_norm}|{ajuste['equipe_id']}",
             })
             numero += 1
@@ -149,7 +148,7 @@ def importar_colaboradores(caminho_arquivo) -> pd.DataFrame:
                 "horario_trabalho": normalizar_texto(linha.get("HORÁRIO DE TRABALHO")),
                 "gestor_nome": "",
                 "is_pessoa_valida": "True" if not esta_vazio(cargo) else "False",
-                "atualizado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "atualizado_em": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
             })
             proximo_id += 1
 
@@ -230,7 +229,7 @@ def criar_ou_atualizar_colaborador(
         "horario_trabalho": normalizar_texto(horario_trabalho),
         "gestor_nome": normalizar_texto(gestor_nome),
         "is_pessoa_valida": "True",
-        "atualizado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "atualizado_em": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     if colaborador_id and (df["colaborador_id"] == colaborador_id).any():

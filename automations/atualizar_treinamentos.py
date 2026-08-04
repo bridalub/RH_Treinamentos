@@ -15,10 +15,11 @@ quando executado via linha de comando).
 import os
 import re
 import subprocess
-from datetime import datetime
 from typing import Callable, Optional
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+from utils.formatacao import agora_br
 
 URL_LOGIN = "https://grupocosan.csod.com/login/render.aspx?id=distribuidores"
 
@@ -163,7 +164,7 @@ def baixar_planilha_treinamentos(
                 item_exportar.click(timeout=10_000)
             download = download_info.value
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = agora_br().strftime("%Y%m%d_%H%M%S")
             caminho_final = os.path.join(pasta_destino, f"dtb_bridalub_por_usuario_{timestamp}.xlsx")
             download.save_as(caminho_final)
             avisar(f"Download concluído: {caminho_final}")

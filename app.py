@@ -1,7 +1,7 @@
 """Ponto de entrada do sistema de Treinamentos BRIDA (Streamlit)."""
-from datetime import datetime
-
 import streamlit as st
+
+from utils.formatacao import agora_br
 
 st.set_page_config(page_title="BRIDA · Treinamentos", page_icon="🛢", layout="wide")
 
@@ -12,7 +12,7 @@ def _momento_de_inicio_do_processo() -> str:
     de página), não só quando o processo do servidor reinicia de fato — o que
     tornaria o marcador inútil para diferenciar aba com código antigo (em
     memória, de um processo mais velho) de processo realmente reiniciado."""
-    return datetime.now().strftime("%d/%m %H:%M:%S")
+    return agora_br().strftime("%d/%m %H:%M:%S")
 
 
 _SERVIDOR_INICIADO_EM = _momento_de_inicio_do_processo()

@@ -34,6 +34,8 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from utils.formatacao import agora_br
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
@@ -346,7 +348,7 @@ def _fazer_backup_local_sem_trava(nome: str) -> str | None:
     # em uso automatizado/testes, e possível também em uso real) não podem
     # colidir no mesmo nome de arquivo de backup — colisão faria a segunda
     # cópia simplesmente sobrescrever a primeira, perdendo aquele estado.
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    timestamp = agora_br().strftime("%Y%m%d_%H%M%S_%f")
     destino = os.path.join(BACKUPS_DIR, f"{nome}_{timestamp}.csv")
     shutil.copy2(caminho, destino)
     _limpar_backups_antigos(nome)
@@ -381,7 +383,7 @@ def _fazer_backup_supabase(nome: str) -> None:
         linha.pop("id", None)
     _cliente_supabase().table("backups").insert({
         "nome": nome,
-        "criado_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "criado_em": agora_br().strftime("%Y-%m-%d %H:%M:%S"),
         "dados_json": json.dumps(linhas, ensure_ascii=False, default=str),
     }).execute()
 
