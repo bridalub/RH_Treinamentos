@@ -57,6 +57,24 @@ class ArmazenamentoIndisponivelError(Exception):
     responde — nunca deve ser confundida/engolida como "sem dados"."""
 
 
+def _detalhes_erro(e: Exception) -> str:
+    """Extrai o máximo de detalhe disponível do erro original (tipo sempre;
+    código/mensagem da API do Supabase quando for esse tipo de erro — ex.:
+    "permission denied", tabela inexistente; senão só a mensagem padrão da
+    exceção, ex.: timeout/erro de rede). Incluído na mensagem da
+    ArmazenamentoIndisponivelError pra quem for investigar um incidente
+    não precisar adivinhar às cegas — antes só chegava a mensagem genérica,
+    sem tipo/código/detalhe nenhum do problema real."""
+    partes = [type(e).__name__]
+    codigo = getattr(e, "code", None)
+    if codigo:
+        partes.append(f"code={codigo}")
+    mensagem = getattr(e, "message", None) or str(e)
+    if mensagem:
+        partes.append(str(mensagem)[:300])
+    return " | ".join(partes)
+
+
 # --------------------------------------------------------- modo de operação
 
 def _modo_storage() -> str:
@@ -134,7 +152,7 @@ def arquivo_existe(nome: str) -> bool:
             resposta = _cliente_supabase().table(nome).select("id").limit(1).execute()
             return bool(resposta.data)
         except Exception as e:
-            raise ArmazenamentoIndisponivelError(f"Não foi possível verificar '{nome}' no armazenamento remoto.") from e
+            raise ArmazenamentoIndisponivelError(f"Não foi possível verificar '{nome}' no armazenamento remoto. ({_detalhes_erro(e)})") from e
     return os.path.exists(caminho_csv(nome))
 
 
@@ -150,7 +168,7 @@ def obter_data_modificacao(nome: str) -> datetime | None:
             )
             linhas = resposta.data or []
         except Exception as e:
-            raise ArmazenamentoIndisponivelError(f"Não foi possível consultar a data de '{nome}' no armazenamento remoto.") from e
+            raise ArmazenamentoIndisponivelError(f"Não foi possível consultar a data de '{nome}' no armazenamento remoto. ({_detalhes_erro(e)})") from e
         if not linhas:
             return None
         return datetime.strptime(linhas[0]["criado_em"], "%Y-%m-%d %H:%M:%S")
@@ -283,7 +301,7 @@ def _ler_supabase(nome, colunas_default) -> pd.DataFrame:
     try:
         linhas = _ler_todas_as_linhas_supabase(nome)
     except Exception as e:
-        raise ArmazenamentoIndisponivelError(f"Não foi possível ler '{nome}' do armazenamento remoto.") from e
+        raise ArmazenamentoIndisponivelError(f"Não foi possível ler '{nome}' do armazenamento remoto. ({_detalhes_erro(e)})") from e
     df = pd.DataFrame(linhas).fillna("").astype(str) if linhas else pd.DataFrame()
     return _normalizar_colunas(df, colunas_default)
 
@@ -347,7 +365,7 @@ def _fazer_backup_supabase(nome: str) -> None:
     try:
         linhas = _ler_todas_as_linhas_supabase(nome)
     except Exception as e:
-        raise ArmazenamentoIndisponivelError(f"Não foi possível fazer backup de '{nome}' antes de gravar (armazenamento remoto indisponível).") from e
+        raise ArmazenamentoIndisponivelError(f"Não foi possível fazer backup de '{nome}' antes de gravar (armazenamento remoto indisponível). ({_detalhes_erro(e)})") from e
     if not linhas:
         return
     for linha in linhas:
@@ -390,7 +408,7 @@ def _restaurar_backup_supabase(nome: str) -> bool:
         )
         linhas = resposta.data or []
     except Exception as e:
-        raise ArmazenamentoIndisponivelError(f"Não foi possível consultar backups de '{nome}' no armazenamento remoto.") from e
+        raise ArmazenamentoIndisponivelError(f"Não foi possível consultar backups de '{nome}' no armazenamento remoto. ({_detalhes_erro(e)})") from e
     if not linhas:
         return False
     dados = json.loads(linhas[0]["dados_json"])
@@ -445,7 +463,7 @@ def _escrever_supabase(nome: str, df: pd.DataFrame) -> None:
             for inicio in range(0, len(registros), tamanho_lote):
                 cliente.table(nome).insert(registros[inicio:inicio + tamanho_lote]).execute()
     except Exception as e:
-        raise ArmazenamentoIndisponivelError(f"Não foi possível gravar '{nome}' no armazenamento remoto — os dados NÃO foram salvos.") from e
+        raise ArmazenamentoIndisponivelError(f"Não foi possível gravar '{nome}' no armazenamento remoto — os dados NÃO foram salvos. ({_detalhes_erro(e)})") from e
 
 
 def salvar_csv(nome: str, df: pd.DataFrame) -> str | None:
@@ -490,7 +508,7 @@ def inserir_linha(nome: str, linha: dict) -> None:
         try:
             _cliente_supabase().table(nome).insert({k: str(v) for k, v in linha.items()}).execute()
         except Exception as e:
-            raise ArmazenamentoIndisponivelError(f"Não foi possível gravar em '{nome}' no armazenamento remoto.") from e
+            raise ArmazenamentoIndisponivelError(f"Não foi possível gravar em '{nome}' no armazenamento remoto. ({_detalhes_erro(e)})") from e
         return
     garantir_pastas()
     with _TravaArquivo(nome):
@@ -537,7 +555,7 @@ def _salvar_estado_supabase(nome: str, dados: dict) -> None:
             "json": json.dumps(dados, ensure_ascii=False, default=str),
         }).execute()
     except Exception as e:
-        raise ArmazenamentoIndisponivelError("Não foi possível gravar o estado no armazenamento remoto.") from e
+        raise ArmazenamentoIndisponivelError(f"Não foi possível gravar o estado no armazenamento remoto. ({_detalhes_erro(e)})") from e
 
 
 def _carregar_estado_supabase(nome: str) -> dict | None:
@@ -545,7 +563,7 @@ def _carregar_estado_supabase(nome: str) -> dict | None:
         resposta = _cliente_supabase().table("estado").select("*").eq("nome", nome).execute()
         linhas = resposta.data or []
     except Exception as e:
-        raise ArmazenamentoIndisponivelError("Não foi possível ler o estado do armazenamento remoto.") from e
+        raise ArmazenamentoIndisponivelError(f"Não foi possível ler o estado do armazenamento remoto. ({_detalhes_erro(e)})") from e
     if not linhas:
         return None
     return json.loads(linhas[0]["json"])

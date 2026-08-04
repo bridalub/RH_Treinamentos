@@ -55,21 +55,24 @@ st.components.v1.html(
 
 injetar_css()
 
-restaurar_sessao_via_cookie()
-
-if not esta_autenticado():
-    login.render()
-    st.stop()
-
-usuario = usuario_atual()
-
 # Erro de conexão com o armazenamento remoto (Supabase fora do ar, credencial
-# errada, projeto pausado) é pego uma única vez aqui — em vez de espalhar
-# try/except pelas páginas, ou (pior) deixar cada leitura falhar
-# silenciosamente devolvendo "vazio" como se não houvesse nenhum
-# colaborador/treinamento cadastrado. Mensagem limpa pro usuário, detalhe
-# técnico só no log.
+# errada, projeto pausado) é pego uma única vez aqui — cobrindo também a
+# restauração de sessão via cookie e a tela de login, que também leem o
+# armazenamento (usuarios.csv/tabela usuarios) e antes ficavam fora do
+# try/except, quebrando a aplicação com uma tela de erro crua antes mesmo do
+# usuário conseguir logar. Em vez de espalhar try/except pelas páginas, ou
+# (pior) deixar cada leitura falhar silenciosamente devolvendo "vazio" como
+# se não houvesse nenhum colaborador/treinamento cadastrado. Mensagem limpa
+# pro usuário, detalhe técnico só no log.
 try:
+    restaurar_sessao_via_cookie()
+
+    if not esta_autenticado():
+        login.render()
+        st.stop()
+
+    usuario = usuario_atual()
+
     with st.sidebar:
         data_ultima_atualizacao = ultima_atualizacao()
         st.markdown(
@@ -140,7 +143,13 @@ except ArmazenamentoIndisponivelError as e:
         "Se o problema continuar, avise o administrador do sistema."
     )
     try:
-        registrar(usuario["login"], "ERRO_ARMAZENAMENTO", str(e))
+        # usuario pode não existir ainda se o erro ocorreu antes do login
+        # (restaurar_sessao_via_cookie ou login.render também podem falhar
+        # por armazenamento indisponível) — usuario_atual() cobre esse caso,
+        # com um rótulo de fallback pra sempre haver algo no log.
+        usuario_erro = usuario_atual()
+        login_para_log = usuario_erro["login"] if usuario_erro else "desconhecido (pré-login)"
+        registrar(login_para_log, "ERRO_ARMAZENAMENTO", str(e))
     except Exception:
         pass  # se o próprio registrar() falhar (mesma causa: armazenamento fora do ar), não deixa a tela quebrar por isso
     st.stop()
