@@ -59,12 +59,15 @@ class ArmazenamentoIndisponivelError(Exception):
 
 def _detalhes_erro(e: Exception) -> str:
     """Extrai o máximo de detalhe disponível do erro original (tipo sempre;
-    código/mensagem da API do Supabase quando for esse tipo de erro — ex.:
-    "permission denied", tabela inexistente; senão só a mensagem padrão da
-    exceção, ex.: timeout/erro de rede). Incluído na mensagem da
-    ArmazenamentoIndisponivelError pra quem for investigar um incidente
-    não precisar adivinhar às cegas — antes só chegava a mensagem genérica,
-    sem tipo/código/detalhe nenhum do problema real."""
+    código/mensagem/details/hint da API do Supabase quando for esse tipo de
+    erro — ex.: "permission denied", tabela inexistente, coluna NOT NULL
+    vazia; senão só a mensagem padrão da exceção, ex.: timeout/erro de
+    rede/ValueError de serialização). `details`/`hint` vêm direto do corpo
+    JSON de erro do PostgREST (postgrest.exceptions.APIError) e costumam
+    conter a causa real quando `message` sozinha é genérica demais. Incluído
+    na mensagem da ArmazenamentoIndisponivelError pra quem for investigar um
+    incidente não precisar adivinhar às cegas — antes só chegava a mensagem
+    genérica, sem tipo/código/detalhe nenhum do problema real."""
     partes = [type(e).__name__]
     codigo = getattr(e, "code", None)
     if codigo:
@@ -72,6 +75,12 @@ def _detalhes_erro(e: Exception) -> str:
     mensagem = getattr(e, "message", None) or str(e)
     if mensagem:
         partes.append(str(mensagem)[:300])
+    details = getattr(e, "details", None)
+    if details:
+        partes.append(f"details={str(details)[:300]}")
+    hint = getattr(e, "hint", None)
+    if hint:
+        partes.append(f"hint={str(hint)[:300]}")
     return " | ".join(partes)
 
 
@@ -455,7 +464,15 @@ def _escrever_supabase(nome: str, df: pd.DataFrame) -> None:
     try:
         cliente.table(nome).delete().neq("id", -1).execute()
         if not df.empty:
-            registros = df.astype(str).to_dict(orient="records")
+            # fillna ANTES do astype(str): em colunas de texto com célula
+            # vazia, o pandas usa internamente o StringDtype mais novo, cujo
+            # marcador de ausência sobrevive como float NaN mesmo depois do
+            # astype(str) — não vira a string "nan" (só acontece isso em
+            # colunas numéricas). Um NaN sozinho no payload quebra a
+            # serialização JSON do cliente do Supabase ("Out of range float
+            # values are not JSON compliant: nan") antes mesmo da requisição
+            # sair — mesmo padrão já usado na leitura (_ler_supabase, acima).
+            registros = df.fillna("").astype(str).to_dict(orient="records")
             # o Postgres tem limite de tamanho por requisição — grava em
             # lotes pra tabelas grandes (treinamentos.csv já passa de 3 mil
             # linhas hoje).
