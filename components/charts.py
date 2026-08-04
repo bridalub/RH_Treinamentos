@@ -154,8 +154,12 @@ def barra_horizontal_dupla(
     return fig
 
 
-def rosca(labels: list[str], valores: list[float], titulo: str = "") -> go.Figure:
-    cores = (CORES["categorica"] * ((len(labels) // len(CORES["categorica"])) + 1))[: len(labels)]
+def rosca(labels: list[str], valores: list[float], titulo: str = "", cores: list[str] | None = None) -> go.Figure:
+    """`cores`: uma cor por label, na mesma ordem de `labels` — para dar um
+    significado semântico (ex.: vermelho para "Pendente") em vez do ciclo
+    genérico da paleta categórica, que não carrega nenhum sentido de bom/ruim."""
+    if cores is None:
+        cores = (CORES["categorica"] * ((len(labels) // len(CORES["categorica"])) + 1))[: len(labels)]
     fig = go.Figure(
         go.Pie(
             labels=labels, values=valores, hole=0.62, marker=dict(colors=cores, line=dict(color=CORES["fundo_card"], width=2)),
@@ -177,10 +181,50 @@ def barras_empilhadas(categorias: list[str], series: dict[str, list[float]], tit
     return _aplicar_layout_padrao(fig, titulo)
 
 
+def barras_agrupadas(
+    categorias: list[str], series: dict[str, list[float]], titulo: str = "",
+    altura: int | None = None, cores: list[str] | None = None, textos: dict[str, list[str]] | None = None,
+    hovertextos: dict[str, list[str]] | None = None,
+) -> go.Figure:
+    """Duas (ou mais) barras lado a lado por categoria — ex.: gestor x equipe.
+
+    `series` é {nome_da_serie: [valor_por_categoria]}, todas na mesma ordem de
+    `categorias`. `cores` dá uma cor por série (na mesma ordem de `series`);
+    sem isso usa a paleta categórica padrão. `textos` permite rótulos já
+    formatados por série (mesma chave/ordem de `series`) no lugar do valor cru
+    — aparecem em cima da barra. `hovertextos` (mesmo formato) permite um
+    texto de tooltip diferente do rótulo da barra (ex.: rótulo curto, tooltip
+    com mais contexto); sem isso o tooltip repete o próprio rótulo.
+    """
+    fig = go.Figure()
+    for i, (nome_serie, valores) in enumerate(series.items()):
+        cor = cores[i] if cores else CORES["categorica"][i % len(CORES["categorica"])]
+        rotulos = (textos or {}).get(nome_serie, valores)
+        hovers = (hovertextos or {}).get(nome_serie) or [f"{cat} — {nome_serie}: {r}" for cat, r in zip(categorias, rotulos)]
+        fig.add_trace(go.Bar(
+            name=nome_serie, x=categorias, y=valores, marker=dict(color=cor, cornerradius=_RAIO_BARRA),
+            text=rotulos, textposition="outside", textfont=dict(color=CORES["texto_primario"], size=13),
+            hovertext=hovers, hoverinfo="text",
+        ))
+    fig.update_layout(barmode="group")
+    h = altura if altura is not None else max(320, 60 * len(categorias))
+    fig = _aplicar_layout_padrao(fig, titulo, altura=h)
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0))
+    fig.update_xaxes(automargin=True, tickangle=-20 if len(categorias) > 6 else 0)
+    return fig
+
+
 def linha(x: list, y: list, titulo: str = "", cor: str | None = None) -> go.Figure:
     cor = cor or CORES["accent"]
     fig = go.Figure(go.Scatter(x=x, y=y, mode="lines+markers", line=dict(color=cor, width=2), marker=dict(size=7, color=cor)))
-    return _aplicar_layout_padrao(fig, titulo)
+    fig = _aplicar_layout_padrao(fig, titulo)
+    # margem inferior padrão (b=10) é curta demais para rótulos de categoria
+    # (ex.: "03/2025") — cortava o eixo X na borda do gráfico. automargin
+    # deixa o Plotly reservar o espaço necessário sozinho, mesmo mudo de
+    # figura pra figura conforme o tamanho do rótulo.
+    fig.update_xaxes(automargin=True, tickangle=-30 if len(x) > 6 else 0)
+    fig.update_yaxes(automargin=True)
+    return fig
 
 
 def cabecalho(titulo: str, subtitulo: str = ""):

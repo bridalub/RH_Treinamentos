@@ -22,7 +22,7 @@ from utils.auth import esta_autenticado, usuario_atual, encerrar_sessao, tem_per
 from utils.csv_io import ArmazenamentoIndisponivelError
 from services.logs_service import registrar
 from services.treinamentos_service import ultima_atualizacao
-from pages_app import login, dashboard, atualizacao, colaboradores, cadastro_colaboradores, equipes, analises, usuarios, logs as logs_page
+from pages_app import login, dashboard, atualizacao, colaboradores, cadastro_colaboradores, equipes, analises, gestores, usuarios, logs as logs_page
 
 # Bloqueia a tradução automática do Chrome/Google Translate nesta página.
 # Causa raiz confirmada de vários "bugs" fantasmas nesta sessão (números com
@@ -125,6 +125,8 @@ try:
     paginas = [st.Page(dashboard.render, title="Início", icon="📊", url_path="dashboard", default=True)]
     paginas.append(st.Page(analises.render, title="Análises", icon="📈", url_path="analises"))
     paginas.append(st.Page(equipes.render, title="Equipes", icon="👥", url_path="equipes"))
+    if tem_permissao("ADMIN", "RH"):
+        paginas.append(st.Page(gestores.render, title="Gestores", icon="🧭", url_path="gestores"))
     paginas.append(st.Page(colaboradores.render, title="Colaboradores", icon="🧑‍💼", url_path="colaboradores"))
     if tem_permissao("ADMIN", "RH", "GESTOR"):
         paginas.append(cadastro_colaboradores.PAGINA)
