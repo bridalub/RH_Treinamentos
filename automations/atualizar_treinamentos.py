@@ -55,26 +55,28 @@ def _detectar_falha_login(page) -> Optional[str]:
 
 
 def _lancar_navegador(p, headless: bool, avisar: Callable[[str], None]):
-    """Prioriza o Google Chrome real instalado no sistema (`channel="chrome"`)
-    — é o que já roda localmente na máquina do operador, validado no fluxo
-    manual. Em um ambiente sem Chrome instalado (ex.: o container Linux do
-    Streamlit Community Cloud, que não tem Chrome nem o disponibiliza por
-    padrão), esse canal não existe — nesse caso, cai para o Chromium que vem
-    junto do próprio pacote playwright, baixando o binário sob demanda na
-    primeira vez que for necessário (`playwright install chromium`)."""
+    """Usa exclusivamente o Chromium baixado pelo próprio Playwright — nunca
+    depende de um navegador já instalado no sistema operacional (`channel=
+    "chrome"`/`"msedge"` ou `executable_path` apontando pro Chrome real).
+    Era exatamente essa dependência que quebrava a automação no container
+    Linux do Streamlit Community Cloud (sem Chrome instalado), mesmo
+    funcionando no Windows local (que tem Chrome, mas não precisa mais
+    dele) — agora o comportamento é o mesmo nos dois ambientes: primeira
+    execução baixa o binário do Chromium (uma única vez, fica em cache no
+    ambiente onde roda), execuções seguintes só o reutilizam."""
     try:
-        return p.chromium.launch(channel="chrome", headless=headless, slow_mo=300 if not headless else 0)
-    except Exception as erro_chrome:
-        mensagem = str(erro_chrome).lower()
-        if "chrome" not in mensagem and "playwright install" not in mensagem:
-            raise  # erro sem relação com o navegador não encontrado — não esconde outras falhas
-        avisar("Google Chrome não encontrado neste ambiente — baixando o Chromium do Playwright (só na primeira vez)...")
+        return p.chromium.launch(headless=headless, slow_mo=300 if not headless else 0)
+    except Exception as erro:
+        mensagem = str(erro).lower()
+        if "executable doesn't exist" not in mensagem and "playwright install" not in mensagem:
+            raise  # erro sem relação com navegador ausente — não esconde outras falhas
+        avisar("Chromium do Playwright ainda não instalado neste ambiente — baixando agora (só na primeira vez)...")
         try:
             subprocess.run(["playwright", "install", "chromium"], check=True, capture_output=True, timeout=300)
         except Exception as erro_instalacao:
             raise AutomacaoError(
-                "Não foi possível baixar um navegador para rodar a automação neste ambiente "
-                f"(nem Chrome do sistema, nem Chromium do Playwright). Detalhe: {erro_instalacao}"
+                "Não foi possível baixar o Chromium do Playwright para rodar a automação. "
+                f"Detalhe: {erro_instalacao}"
             ) from erro_instalacao
         return p.chromium.launch(headless=headless, slow_mo=300 if not headless else 0)
 
