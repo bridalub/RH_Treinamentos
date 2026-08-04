@@ -1,0 +1,3 @@
+colaborador_id,nome,nome_normalizado,cpf,equipe_id,cargo,email,celular,horario_trabalho,gestor_nome,is_pessoa_valida,atualizado_em
+COL0001,FULANO DE EXEMPLO,FULANO DE EXEMPLO,00000000000,1,COORDENADOR,fulano.exemplo@empresa.com.br,11 90000-0000,08H ÀS 18H - 1H15 ALMOÇO,,True,2026-01-01 00:00:00
+COL0002,CICLANA DA SILVA EXEMPLO,CICLANA DA SILVA EXEMPLO,11111111111,1,EXTERNO,ciclana.exemplo@empresa.com.br,11 90000-0001,08H ÀS 18H - 1H15 ALMOÇO,FULANO DE EXEMPLO,True,2026-01-01 00:00:00

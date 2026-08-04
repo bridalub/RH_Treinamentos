@@ -1,0 +1,39 @@
+# Dados reais de RH — nunca vão pro repositório (nome, CPF, e-mail, celular,
+# senha hasheada). O repositório distribui só o código; os CSVs nascem vazios
+# em produção (ver utils/csv_io.py) e são preenchidos pela própria RH.
+# data_examples/ (dados fictícios) fica de fora dessa regra de propósito.
+data/
+*.xlsx
+*.xls
+
+# Segredos — nunca commitar.
+.streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+service-account*.json
+token.json
+cookies.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv*/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Logs e temporários
+*.log
+*.tmp
+*.bak
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,19 @@
+[theme]
+base = "dark"
+primaryColor = "#3B82F6"
+backgroundColor = "#0b1220"
+secondaryBackgroundColor = "#131D2F"
+textColor = "#F8FAFC"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# esconde o menu "Deploy"/hamburguer do Streamlit — é chrome do framework
+# (não do app), texto em inglês sem função aqui e um dos poucos elementos
+# em inglês restantes na tela.
+toolbarMode = "minimal"

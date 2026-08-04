@@ -1,0 +1,2 @@
+usuario_id,login,nome,senha_hash,perfil,ativo,criado_em,ultimo_login
+USR0001,admin,Administrador,18d586d46e27c99c7ad3d769da31bb95$73a67d3c2c9996204610f2729ec67811ab15974cf41e2d238006286281973169,ADMIN,True,2026-01-01 00:00:00,
