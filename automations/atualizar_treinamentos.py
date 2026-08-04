@@ -14,6 +14,7 @@ quando executado via linha de comando).
 """
 import os
 import re
+import subprocess
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -53,6 +54,31 @@ def _detectar_falha_login(page) -> Optional[str]:
         return None
 
 
+def _lancar_navegador(p, headless: bool, avisar: Callable[[str], None]):
+    """Prioriza o Google Chrome real instalado no sistema (`channel="chrome"`)
+    — é o que já roda localmente na máquina do operador, validado no fluxo
+    manual. Em um ambiente sem Chrome instalado (ex.: o container Linux do
+    Streamlit Community Cloud, que não tem Chrome nem o disponibiliza por
+    padrão), esse canal não existe — nesse caso, cai para o Chromium que vem
+    junto do próprio pacote playwright, baixando o binário sob demanda na
+    primeira vez que for necessário (`playwright install chromium`)."""
+    try:
+        return p.chromium.launch(channel="chrome", headless=headless, slow_mo=300 if not headless else 0)
+    except Exception as erro_chrome:
+        mensagem = str(erro_chrome).lower()
+        if "chrome" not in mensagem and "playwright install" not in mensagem:
+            raise  # erro sem relação com o navegador não encontrado — não esconde outras falhas
+        avisar("Google Chrome não encontrado neste ambiente — baixando o Chromium do Playwright (só na primeira vez)...")
+        try:
+            subprocess.run(["playwright", "install", "chromium"], check=True, capture_output=True, timeout=300)
+        except Exception as erro_instalacao:
+            raise AutomacaoError(
+                "Não foi possível baixar um navegador para rodar a automação neste ambiente "
+                f"(nem Chrome do sistema, nem Chromium do Playwright). Detalhe: {erro_instalacao}"
+            ) from erro_instalacao
+        return p.chromium.launch(headless=headless, slow_mo=300 if not headless else 0)
+
+
 def baixar_planilha_treinamentos(
     cpf: str,
     senha: str,
@@ -71,7 +97,7 @@ def baixar_planilha_treinamentos(
 
     with sync_playwright() as p:
         avisar("Abrindo o navegador e o portal do CSOD...")
-        browser = p.chromium.launch(channel="chrome", headless=headless, slow_mo=300 if not headless else 0)
+        browser = _lancar_navegador(p, headless, avisar)
         page = browser.new_page()
 
         try:

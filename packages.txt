@@ -1,0 +1,26 @@
+# Dependências de sistema (apt) exigidas pelo Chromium do Playwright para
+# rodar num container Linux (Streamlit Community Cloud) — sem elas, o
+# binário do Chromium até é baixado, mas falha ao abrir. Lista baseada no
+# que "playwright install-deps chromium" instala em Debian/Ubuntu.
+# Usada só pela automação de download do relatório CSOD (Atualização >
+# Executar automação); nenhuma outra parte do app depende disso.
+libnss3
+libnspr4
+libatk1.0-0
+libatk-bridge2.0-0
+libcups2
+libdrm2
+libxkbcommon0
+libxcomposite1
+libxdamage1
+libxfixes3
+libxrandr2
+libgbm1
+libasound2
+libpango-1.0-0
+libcairo2
+fonts-liberation
+libatspi2.0-0
+libx11-6
+libxcb1
+libxext6
