@@ -42,8 +42,6 @@ def render():
         _pergunta("5. Quais equipes apresentam maior risco?", _equipes_maior_risco, listview)
     _pergunta("6. Quais nomes existem na plataforma mas não foram encontrados na base?", _nao_encontrados, df_treino)
 
-    _pergunta("7. Quais nomes necessitam de revisão manual?", _revisao_manual, df_treino)
-
 
 def _par_graficos_1_e_2(df_treino: pd.DataFrame, listview: pd.DataFrame):
     """Títulos no padrão #### + um único Plotly (2 colunas) com base alinhada."""
@@ -191,9 +189,3 @@ def _nao_encontrados(df_treino: pd.DataFrame):
     st.dataframe(pd.DataFrame({"Nome na Plataforma": nomes}), hide_index=True, use_container_width=True, height=ALTURA_PAR)
 
 
-def _revisao_manual(df_treino: pd.DataFrame):
-    nomes = sorted(df_treino[df_treino["situacao_relacionamento"] == ms.REVISAO_MANUAL]["nome_colaborador_planilha"].unique())
-    if not nomes:
-        st.caption("Nenhum nome pendente de revisão manual.")
-        return
-    st.dataframe(pd.DataFrame({"Nome na Plataforma": nomes}), hide_index=True, use_container_width=True)
