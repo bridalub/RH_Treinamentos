@@ -10,7 +10,6 @@ from utils.auth import usuario_atual
 from utils.formatacao import formatar_numero_br as _fmt, formatar_percentual_br as _pct
 
 NAO_COMPLETO = {"Em Andamento", "Em Andamento/Vencido", "Não Iniciada", "Registrado"}
-NUNCA_INICIADO = {"Não Iniciada", "Registrado"}
 # altura fixa dos pares lado a lado (evita um gráfico baixo e outro alto na mesma linha)
 ALTURA_PAR = 400
 
@@ -36,15 +35,14 @@ def render():
         ("4. Quais treinamentos têm maior índice de não conclusão?", _treinos_maior_nao_conclusao, df_treino),
     )
 
-    _pergunta("5. Quais colaboradores nunca iniciaram seus treinamentos?", lambda d: _nunca_iniciaram(d, df_colab), df_treino)
-
-    # visão 6 compara TODAS as equipes/gestores entre si — mesmo motivo das
-    # visões 1 e 2: um GESTOR não pode ver o risco das equipes de outros gestores.
+    # visão 5 (antiga 6) compara TODAS as equipes/gestores entre si — mesmo
+    # motivo das visões 1 e 2: um GESTOR não pode ver o risco das equipes de
+    # outros gestores.
     if usuario.get("perfil") != "GESTOR":
-        _pergunta("6. Quais equipes apresentam maior risco?", _equipes_maior_risco, listview)
-    _pergunta("7. Quais nomes existem na plataforma mas não foram encontrados na base?", _nao_encontrados, df_treino)
+        _pergunta("5. Quais equipes apresentam maior risco?", _equipes_maior_risco, listview)
+    _pergunta("6. Quais nomes existem na plataforma mas não foram encontrados na base?", _nao_encontrados, df_treino)
 
-    _pergunta("8. Quais nomes necessitam de revisão manual?", _revisao_manual, df_treino)
+    _pergunta("7. Quais nomes necessitam de revisão manual?", _revisao_manual, df_treino)
 
 
 def _par_graficos_1_e_2(df_treino: pd.DataFrame, listview: pd.DataFrame):
@@ -167,29 +165,6 @@ def _treinos_maior_nao_conclusao(df_treino: pd.DataFrame):
         charts.barra_horizontal(resultado.index.tolist(), valores, altura=ALTURA_PAR, textos=[_pct(v, 1) for v in valores]),
         altura=ALTURA_PAR, ocultar_rotulos_x=True,
     )
-
-
-def _nunca_iniciaram(df_treino: pd.DataFrame, df_colab: pd.DataFrame):
-    """"Nunca iniciou" tem dois casos: (a) tem linha(s) na plataforma mas
-    todas em status inicial (Não Iniciada/Registrado), e (b) não tem NENHUMA
-    linha na plataforma — o caso mais extremo, e o que ficava de fora antes
-    porque a checagem só olhava quem já aparecia em treinamentos.csv."""
-    base = df_treino[df_treino["nome_colaborador_relacionado"].astype(str) != ""]
-
-    com_status_inicial = set()
-    if not base.empty:
-        por_pessoa = base.groupby("nome_colaborador_relacionado")["status"].apply(lambda s: set(s.unique()).issubset(NUNCA_INICIADO))
-        com_status_inicial = set(por_pessoa[por_pessoa].index)
-
-    validos = df_colab[df_colab["is_pessoa_valida"] == "True"]
-    tem_algum_registro = set(base["nome_colaborador_relacionado"].unique()) if not base.empty else set()
-    sem_nenhum_registro = set(validos["nome"]) - tem_algum_registro
-
-    nomes = sorted(com_status_inicial | sem_nenhum_registro)
-    if not nomes:
-        st.caption("Todos os colaboradores relacionados já iniciaram ao menos um treinamento.")
-        return
-    st.dataframe(pd.DataFrame({"Colaborador": nomes}), hide_index=True, use_container_width=True)
 
 
 def _equipes_maior_risco(listview: pd.DataFrame):
