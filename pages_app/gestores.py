@@ -135,9 +135,6 @@ def render():
         _grafico_evolucao_equipes(df_treino_periodo, membros_norm_final)
     st.write("")
 
-    _grafico_desempenho_area(df_gestores)
-    st.write("")
-
     _tabela_executiva(df_gestores)
     st.write("")
     _painel_atencao(df_gestores)
@@ -526,23 +523,6 @@ def _grafico_evolucao_equipes(df_treino_periodo: pd.DataFrame, membros_norm: set
         st.caption("Sem treinamentos concluídos nos filtros atuais para montar a evolução.")
         return
     charts.mostrar(charts.linha(rotulos, valores, cor=CORES["categorica"][2]), altura=320)
-
-
-def _grafico_desempenho_area(df: pd.DataFrame):
-    charts.cabecalho("🏢 Desempenho por Área", "Média de conclusão dos gestores agrupada por área")
-    base = df[df["total_gestor"] > 0]
-    if base.empty:
-        st.caption("Sem dados suficientes para desempenho por área.")
-        return
-    agg = base.groupby("Área").agg(concluidos=("concluidos_gestor", "sum"), total=("total_gestor", "sum")).reset_index()
-    agg["taxa"] = (agg["concluidos"] / agg["total"] * 100).round(1)
-    agg = agg.sort_values("taxa", ascending=False)
-    cores = [charts.cor_por_taxa(v) for v in agg["taxa"]]
-    textos = [_pct(v, 1) for v in agg["taxa"]]
-    charts.mostrar(charts.ranking_horizontal(
-        agg["Área"].tolist(), agg["taxa"].tolist(), cores=cores, textos_barra=textos,
-        altura=max(280, 40 * len(agg)), sufixo_eixo_x="%",
-    ))
 
 
 # ------------------------------------------------------------------------- tabelas
