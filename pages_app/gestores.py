@@ -382,9 +382,16 @@ def _grafico_ranking_gestores(df: pd.DataFrame):
         "🏆 Ranking dos Gestores",
         "Ordenado por volume concluído, não só por percentual — 1 de 1 (100%) não fica acima de 100 de 110 (90,9%)",
     )
-    base = df[df["total_gestor"] > 0].copy()
+    # TODOS os gestores da lista-base (df já é df_gestores, montado a partir
+    # do cadastro — não filtrado por ter treinamento) — um gestor sem
+    # nenhum treinamento atribuído a ele mesmo ainda é um gestor válido e
+    # precisa continuar aparecendo aqui, com 0 concluídos / "sem dados".
+    # Antes esse filtro (total_gestor > 0) escondia esses casos só deste
+    # gráfico — "Ranking das Equipes" nunca teve esse filtro e por isso
+    # sempre mostrou esses gestores normalmente.
+    base = df.copy()
     if base.empty:
-        st.caption("Nenhum gestor com treinamentos atribuídos nos filtros atuais.")
+        st.caption("Nenhum gestor identificado nos filtros atuais.")
         return
     base = _ordenar_ranking(base)
     # comprimento da barra = quantidade concluída (critério de ordenação);
