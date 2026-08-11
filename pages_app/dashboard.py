@@ -270,39 +270,56 @@ def render():
 
     st.write("")
 
-    # ------------------------------------------------------- gráfico 2: por cargo
+    # ------------------------------------------------------- gráfico 2: por cargo + gestor
+    # Cada barra é um par (cargo, gestor): assim o mesmo cargo em equipes
+    # diferentes não se mistura, e o coordenador/líder fica explícito no eixo.
     agg_cargo = pd.DataFrame()
     charts.cabecalho(
         "🧑‍💼 Taxa de Conclusão por Cargo",
-        "Comparação do percentual de treinamentos concluídos entre os cargos da seleção",
+        "Comparação do percentual de treinamentos concluídos por cargo, atribuído ao coordenador/líder",
     )
-    roster_cargo = pessoas_escopo.drop_duplicates("nome_normalizado")
+    roster_cargo = pessoas_escopo.drop_duplicates("nome_normalizado")[["cargo", "gestor_nome"]].copy()
     if roster_cargo.empty:
         st.caption("Nenhum colaborador na seleção atual.")
     else:
-        contagem_pessoas_cargo = roster_cargo.groupby("cargo").size()
-        mapa_cargo = pessoas_escopo.drop_duplicates("nome").set_index("nome")["cargo"].to_dict()
+        roster_cargo["gestor_nome"] = (
+            roster_cargo["gestor_nome"].replace("", "Sem líder definido").fillna("Sem líder definido")
+        )
+        contagem_pessoas_cargo = roster_cargo.groupby(["cargo", "gestor_nome"]).size().rename("colaboradores")
+        mapa_pessoa = (
+            pessoas_escopo.drop_duplicates("nome")
+            .assign(gestor_nome=lambda d: d["gestor_nome"].replace("", "Sem líder definido").fillna("Sem líder definido"))
+            .set_index("nome")[["cargo", "gestor_nome"]]
+            .to_dict("index")
+        )
 
         if not treinos_escopo.empty:
             tc = treinos_escopo[treinos_escopo["nome_colaborador_relacionado"] != ""].copy()
-            tc["cargo"] = tc["nome_colaborador_relacionado"].map(mapa_cargo).fillna("Não informado")
+            info = tc["nome_colaborador_relacionado"].map(mapa_pessoa)
+            tc["cargo"] = info.map(lambda d: d["cargo"] if isinstance(d, dict) else "Não informado")
+            tc["gestor_nome"] = info.map(lambda d: d["gestor_nome"] if isinstance(d, dict) else "Sem líder definido")
             agg_treinos_cargo = (
-                tc.groupby("cargo")
+                tc.groupby(["cargo", "gestor_nome"])
                 .agg(total=("status", "size"), concluidos=("status", lambda s: s.isin(STATUS_CONCLUIDOS).sum()))
                 .reset_index()
             )
         else:
-            agg_treinos_cargo = pd.DataFrame(columns=["cargo", "total", "concluidos"])
+            agg_treinos_cargo = pd.DataFrame(columns=["cargo", "gestor_nome", "total", "concluidos"])
 
-        # left-join a partir de TODOS os cargos presentes na seleção — senão um
+        # left-join a partir de TODOS os pares cargo+gestor da seleção — senão um
         # cargo cujas pessoas ainda não têm treinamento registrado some do
         # gráfico mesmo contando no "colaboradores" do card.
-        agg_cargo = pd.DataFrame({"cargo": contagem_pessoas_cargo.index}).merge(agg_treinos_cargo, on="cargo", how="left")
+        agg_cargo = contagem_pessoas_cargo.reset_index().merge(
+            agg_treinos_cargo, on=["cargo", "gestor_nome"], how="left",
+        )
         agg_cargo["total"] = agg_cargo["total"].fillna(0).astype(int)
         agg_cargo["concluidos"] = agg_cargo["concluidos"].fillna(0).astype(int)
         agg_cargo["pendentes"] = agg_cargo["total"] - agg_cargo["concluidos"]
         agg_cargo["taxa"] = agg_cargo.apply(lambda r: round(r["concluidos"] / r["total"] * 100, 1) if r["total"] else 0.0, axis=1)
-        agg_cargo["colaboradores"] = agg_cargo["cargo"].map(contagem_pessoas_cargo).fillna(0).astype(int)
+        agg_cargo["colaboradores"] = agg_cargo["colaboradores"].fillna(0).astype(int)
+        agg_cargo["rotulo"] = agg_cargo.apply(
+            lambda r: f"{r['cargo']} — {r['gestor_nome']}", axis=1,
+        )
         agg_cargo = agg_cargo.sort_values(["taxa", "total"], ascending=[False, False])
 
         cores_cargo = [charts.cor_por_taxa(t) for t in agg_cargo["taxa"]]
@@ -313,12 +330,13 @@ def render():
             for t, c, tt in zip(agg_cargo["taxa"], agg_cargo["concluidos"], agg_cargo["total"])
         ]
         hovers_cargo = [
-            f"<b>{r['cargo']}</b><br>Colaboradores: {_fmt(r['colaboradores'])}<br>Atribuídos: {_fmt(r['total'])}<br>"
+            f"<b>{r['cargo']}</b><br>Coordenador/líder: {r['gestor_nome']}<br>"
+            f"Colaboradores: {_fmt(r['colaboradores'])}<br>Atribuídos: {_fmt(r['total'])}<br>"
             f"Concluídos: {_fmt(r['concluidos'])}<br>Pendentes: {_fmt(r['pendentes'])}<br>Taxa: {_pct(r['taxa'])}"
             for _, r in agg_cargo.iterrows()
         ]
         charts.mostrar(charts.ranking_horizontal(
-            agg_cargo["cargo"].tolist(), agg_cargo["taxa"].tolist(),
+            agg_cargo["rotulo"].tolist(), agg_cargo["taxa"].tolist(),
             cores=cores_cargo, textos_barra=textos_cargo, hovertexts=hovers_cargo,
             sufixo_eixo_x="%", altura=max(260, 60 * len(agg_cargo)),
         ))
@@ -392,9 +410,11 @@ def _gerar_insights(
     if not agg_cargo.empty and len(agg_cargo) > 1:
         melhor_cargo = agg_cargo.sort_values(["taxa", "total"], ascending=[False, False]).iloc[0]
         pior_cargo = agg_cargo.sort_values(["taxa", "total"], ascending=[True, False]).iloc[0]
-        insights.append({"nivel": "positivo", "texto": f"Cargo com melhor conclusão: {melhor_cargo['cargo']} ({_pct(melhor_cargo['taxa'])})."})
-        if pior_cargo["cargo"] != melhor_cargo["cargo"]:
-            insights.append({"nivel": "atencao", "texto": f"Cargo com pior conclusão: {pior_cargo['cargo']} ({_pct(pior_cargo['taxa'])})."})
+        rotulo_melhor = melhor_cargo["rotulo"]
+        rotulo_pior = pior_cargo["rotulo"]
+        insights.append({"nivel": "positivo", "texto": f"Cargo com melhor conclusão: {rotulo_melhor} ({_pct(melhor_cargo['taxa'])})."})
+        if rotulo_pior != rotulo_melhor:
+            insights.append({"nivel": "atencao", "texto": f"Cargo com pior conclusão: {rotulo_pior} ({_pct(pior_cargo['taxa'])})."})
 
     if not treinos_escopo.empty:
         vencidos = treinos_escopo[treinos_escopo["status"] == "Em Andamento/Vencido"]
