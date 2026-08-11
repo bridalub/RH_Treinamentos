@@ -28,6 +28,30 @@ def _pct(n, casas: int = 0) -> str:
     return formatar_percentual_br(n, casas)
 
 
+def _stats_concluidos(df_treino: pd.DataFrame, nomes: set[str]) -> tuple[int, int, float]:
+    """total, concluídos e taxa % — NaN na taxa quando não há treinamentos atribuídos."""
+    if not nomes or df_treino.empty:
+        return 0, 0, float("nan")
+    base = df_treino[df_treino["nome_colaborador_relacionado"].isin(nomes)]
+    total = len(base)
+    concluidos = int(base["status"].isin(STATUS_CONCLUIDOS).sum()) if total else 0
+    taxa = round(concluidos / total * 100, 1) if total else float("nan")
+    return total, concluidos, taxa
+
+
+def _rotulo_quantidade(concluidos: int, total: int) -> str:
+    if not total:
+        return "sem dados"
+    return f"{_fmt(concluidos)}/{_fmt(total)}"
+
+
+def _rotulo_percentual_base(concluidos: int, total: int) -> str:
+    if not total:
+        return "Sem treinamentos atribuídos"
+    taxa = round(concluidos / total * 100, 1)
+    return f"{_pct(taxa, 1)} — {_fmt(concluidos)} de {_fmt(total)}"
+
+
 def _filtro_multiselect(label: str, opcoes: list[str], key: str) -> list[str] | None:
     """Multiselect com opção 'Todos'. Retorna None quando não há restrição.
 
@@ -76,7 +100,7 @@ def _mapa_lideres(validos: pd.DataFrame) -> tuple[dict, list[tuple[str, str]]]:
 
 def render():
     st.markdown("## Painel de Controle Inicial")
-    st.caption("Acompanhe a evolução dos treinamentos por líder, colaborador, cargo e período")
+    st.caption("Acompanhe a evolução dos treinamentos por líder, colaborador e período")
 
     df_colab = carregar_colaboradores()
     df_treino_total = carregar_treinamentos()
@@ -148,21 +172,27 @@ def render():
         return
 
     nomes_escopo = set(pessoas_escopo["nome"])
-    treinos_escopo = df_treino_total[df_treino_total["nome_colaborador_relacionado"].isin(nomes_escopo)] if not df_treino_total.empty else df_treino_total
-    if status_sel and not treinos_escopo.empty:
-        treinos_escopo = treinos_escopo[treinos_escopo["status"].isin(status_sel)]
-
-    if not treinos_escopo.empty and (ano_sel != "Todos" or mes_sel is not None):
+    # filtros de status/período antes do recorte por nome: o comparativo
+    # Gestor x Equipe precisa dos treinamentos do próprio líder (que normalmente
+    # não está em pessoas_escopo) com a MESMA regra de período/status da equipe.
+    treinos_filtrados = df_treino_total if not df_treino_total.empty else df_treino_total
+    if status_sel and not treinos_filtrados.empty:
+        treinos_filtrados = treinos_filtrados[treinos_filtrados["status"].isin(status_sel)]
+    if not treinos_filtrados.empty and (ano_sel != "Todos" or mes_sel is not None):
         # o período filtra pela Data de Conclusão: só entra quem foi concluído
         # naquele mês/ano — registros ainda sem conclusão ficam de fora quando
         # o filtro está ativo (comportamento escolhido para este painel).
-        datas_conclusao = treinos_escopo["_data_conclusao_dt"]
-        mascara = pd.Series(True, index=treinos_escopo.index)
+        datas_conclusao = treinos_filtrados["_data_conclusao_dt"]
+        mascara = pd.Series(True, index=treinos_filtrados.index)
         if ano_sel != "Todos":
             mascara &= datas_conclusao.dt.year == int(ano_sel)
         if mes_sel is not None:
             mascara &= datas_conclusao.dt.month == mes_sel
-        treinos_escopo = treinos_escopo[mascara]
+        treinos_filtrados = treinos_filtrados[mascara]
+    treinos_escopo = (
+        treinos_filtrados[treinos_filtrados["nome_colaborador_relacionado"].isin(nomes_escopo)]
+        if not treinos_filtrados.empty else treinos_filtrados
+    )
 
     # ----------------------------------------------------------------------- kpis
     total_pessoas = pessoas_escopo.drop_duplicates("nome_normalizado").shape[0]
@@ -270,76 +300,95 @@ def render():
 
     st.write("")
 
-    # ------------------------------------------------------- gráfico 2: por cargo + gestor
-    # Cada barra é um par (cargo, gestor): assim o mesmo cargo em equipes
-    # diferentes não se mistura, e o coordenador/líder fica explícito no eixo.
-    agg_cargo = pd.DataFrame()
+    # -------------------------------------------- gráfico 2: gestor x equipe
+    # Taxa individual do coordenador/líder vs média da equipe (sem contar o
+    # gestor) — mesma lógica da tela Gestores, restrita aos filtros do painel.
+    agg_comp = pd.DataFrame()
     charts.cabecalho(
-        "🧑‍💼 Taxa de Conclusão por Cargo",
-        "Comparação do percentual de treinamentos concluídos por cargo, atribuído ao coordenador/líder",
+        "⚖️ Taxa do Gestor × Taxa da Equipe",
+        "Desempenho individual do coordenador/líder comparado à conclusão da sua equipe (sem contar o gestor)",
     )
-    roster_cargo = pessoas_escopo.drop_duplicates("nome_normalizado")[["cargo", "gestor_nome"]].copy()
-    if roster_cargo.empty:
-        st.caption("Nenhum colaborador na seleção atual.")
+    if lideres_norm_filtro:
+        lideres_norm = [n for n in lideres_norm_filtro if n in mapa_lideres]
     else:
-        roster_cargo["gestor_nome"] = (
-            roster_cargo["gestor_nome"].replace("", "Sem líder definido").fillna("Sem líder definido")
-        )
-        contagem_pessoas_cargo = roster_cargo.groupby(["cargo", "gestor_nome"]).size().rename("colaboradores")
-        mapa_pessoa = (
-            pessoas_escopo.drop_duplicates("nome")
-            .assign(gestor_nome=lambda d: d["gestor_nome"].replace("", "Sem líder definido").fillna("Sem líder definido"))
-            .set_index("nome")[["cargo", "gestor_nome"]]
-            .to_dict("index")
+        lideres_norm = sorted(
+            {n for n in pessoas_escopo["gestor_normalizado"] if n and n in mapa_lideres},
+            key=lambda n: mapa_lideres[n],
         )
 
-        if not treinos_escopo.empty:
-            tc = treinos_escopo[treinos_escopo["nome_colaborador_relacionado"] != ""].copy()
-            info = tc["nome_colaborador_relacionado"].map(mapa_pessoa)
-            tc["cargo"] = info.map(lambda d: d["cargo"] if isinstance(d, dict) else "Não informado")
-            tc["gestor_nome"] = info.map(lambda d: d["gestor_nome"] if isinstance(d, dict) else "Sem líder definido")
-            agg_treinos_cargo = (
-                tc.groupby(["cargo", "gestor_nome"])
-                .agg(total=("status", "size"), concluidos=("status", lambda s: s.isin(STATUS_CONCLUIDOS).sum()))
-                .reset_index()
-            )
+    if not lideres_norm:
+        st.caption("Nenhum coordenador ou líder identificado na seleção atual.")
+    else:
+        linhas_comp = []
+        for gestor_norm in lideres_norm:
+            nome_gestor = mapa_lideres[gestor_norm]
+            nomes_gestor = set(validos.loc[validos["nome_normalizado"] == gestor_norm, "nome"])
+            if not nomes_gestor:
+                nomes_gestor = {nome_gestor}
+
+            membros = pessoas_escopo[pessoas_escopo["gestor_normalizado"] == gestor_norm]
+            nomes_equipe = set(membros.loc[membros["nome_normalizado"] != gestor_norm, "nome"])
+
+            total_g, concl_g, pct_g = _stats_concluidos(treinos_filtrados, nomes_gestor)
+            total_e, concl_e, pct_e = _stats_concluidos(treinos_filtrados, nomes_equipe)
+            if total_g == 0 and total_e == 0:
+                continue
+            linhas_comp.append({
+                "gestor_norm": gestor_norm,
+                "gestor": nome_gestor,
+                "colaboradores": len(nomes_equipe),
+                "total_gestor": total_g, "concluidos_gestor": concl_g, "pct_gestor": pct_g,
+                "total_equipe": total_e, "concluidos_equipe": concl_e, "pct_equipe": pct_e,
+            })
+
+        agg_comp = pd.DataFrame(linhas_comp)
+        if agg_comp.empty:
+            st.caption("Sem treinamentos atribuídos ao gestor ou à equipe nos filtros atuais.")
         else:
-            agg_treinos_cargo = pd.DataFrame(columns=["cargo", "gestor_nome", "total", "concluidos"])
+            agg_comp = agg_comp.sort_values(
+                ["concluidos_gestor", "pct_gestor", "pct_equipe"],
+                ascending=[False, False, False],
+                na_position="last",
+            )
+            total_lideres = len(agg_comp)
+            base_exibida = agg_comp.head(15)
+            if len(base_exibida) < total_lideres:
+                st.caption(f"Exibindo {len(base_exibida)} de {total_lideres} coordenadores/líderes da seleção.")
 
-        # left-join a partir de TODOS os pares cargo+gestor da seleção — senão um
-        # cargo cujas pessoas ainda não têm treinamento registrado some do
-        # gráfico mesmo contando no "colaboradores" do card.
-        agg_cargo = contagem_pessoas_cargo.reset_index().merge(
-            agg_treinos_cargo, on=["cargo", "gestor_nome"], how="left",
-        )
-        agg_cargo["total"] = agg_cargo["total"].fillna(0).astype(int)
-        agg_cargo["concluidos"] = agg_cargo["concluidos"].fillna(0).astype(int)
-        agg_cargo["pendentes"] = agg_cargo["total"] - agg_cargo["concluidos"]
-        agg_cargo["taxa"] = agg_cargo.apply(lambda r: round(r["concluidos"] / r["total"] * 100, 1) if r["total"] else 0.0, axis=1)
-        agg_cargo["colaboradores"] = agg_cargo["colaboradores"].fillna(0).astype(int)
-        agg_cargo["rotulo"] = agg_cargo.apply(
-            lambda r: f"{r['cargo']} — {r['gestor_nome']}", axis=1,
-        )
-        agg_cargo = agg_cargo.sort_values(["taxa", "total"], ascending=[False, False])
-
-        cores_cargo = [charts.cor_por_taxa(t) for t in agg_cargo["taxa"]]
-        # cargo sem nenhum treinamento atribuído: "0% — 0 de 0" não é uma taxa
-        # de verdade, é ausência de dado — mostrar como tal em vez de 0%.
-        textos_cargo = [
-            "Sem dados" if tt == 0 else f"{_pct(t)} — {_fmt(c)} de {_fmt(tt)}"
-            for t, c, tt in zip(agg_cargo["taxa"], agg_cargo["concluidos"], agg_cargo["total"])
-        ]
-        hovers_cargo = [
-            f"<b>{r['cargo']}</b><br>Coordenador/líder: {r['gestor_nome']}<br>"
-            f"Colaboradores: {_fmt(r['colaboradores'])}<br>Atribuídos: {_fmt(r['total'])}<br>"
-            f"Concluídos: {_fmt(r['concluidos'])}<br>Pendentes: {_fmt(r['pendentes'])}<br>Taxa: {_pct(r['taxa'])}"
-            for _, r in agg_cargo.iterrows()
-        ]
-        charts.mostrar(charts.ranking_horizontal(
-            agg_cargo["rotulo"].tolist(), agg_cargo["taxa"].tolist(),
-            cores=cores_cargo, textos_barra=textos_cargo, hovertexts=hovers_cargo,
-            sufixo_eixo_x="%", altura=max(260, 60 * len(agg_cargo)),
-        ))
+            pct_gestor = [v if pd.notna(v) else 0.0 for v in base_exibida["pct_gestor"]]
+            pct_equipe = [v if pd.notna(v) else 0.0 for v in base_exibida["pct_equipe"]]
+            curtos_gestor = [
+                _rotulo_quantidade(c, t)
+                for c, t in zip(base_exibida["concluidos_gestor"], base_exibida["total_gestor"])
+            ]
+            curtos_equipe = [
+                _rotulo_quantidade(c, t)
+                for c, t in zip(base_exibida["concluidos_equipe"], base_exibida["total_equipe"])
+            ]
+            rotulos_gestor = [
+                _rotulo_percentual_base(c, t)
+                for c, t in zip(base_exibida["concluidos_gestor"], base_exibida["total_gestor"])
+            ]
+            rotulos_equipe = [
+                _rotulo_percentual_base(c, t)
+                for c, t in zip(base_exibida["concluidos_equipe"], base_exibida["total_equipe"])
+            ]
+            hovers_gestor = [
+                f"<b>{g}</b><br>Gestor: {r}<br>Colaboradores na equipe: {_fmt(n)}"
+                for g, r, n in zip(base_exibida["gestor"], rotulos_gestor, base_exibida["colaboradores"])
+            ]
+            hovers_equipe = [
+                f"<b>{g}</b><br>Equipe: {r}<br>Colaboradores na equipe: {_fmt(n)}"
+                for g, r, n in zip(base_exibida["gestor"], rotulos_equipe, base_exibida["colaboradores"])
+            ]
+            charts.mostrar(charts.barras_agrupadas(
+                base_exibida["gestor"].tolist(),
+                {"Gestor": pct_gestor, "Equipe": pct_equipe},
+                cores=[CORES["accent"], CORES["categorica"][2]],
+                textos={"Gestor": curtos_gestor, "Equipe": curtos_equipe},
+                hovertextos={"Gestor": hovers_gestor, "Equipe": hovers_equipe},
+                altura=max(320, 90 * len(base_exibida) + 80),
+            ))
 
     st.write("")
 
@@ -367,13 +416,13 @@ def render():
             ))
 
     with col_insight:
-        insights = _gerar_insights(pessoas_escopo, treinos_escopo, df_treino_total, agg, agg_cargo, lideres_norm_filtro, mapa_lideres)
+        insights = _gerar_insights(pessoas_escopo, treinos_escopo, df_treino_total, agg, agg_comp, lideres_norm_filtro, mapa_lideres)
         cards.callout("🧠 Análise Inteligente", "Principais destaques e pontos de atenção da seleção atual", insights)
 
 
 def _gerar_insights(
     pessoas_escopo: pd.DataFrame, treinos_escopo: pd.DataFrame, df_treino_total: pd.DataFrame,
-    agg: pd.DataFrame, agg_cargo: pd.DataFrame, lideres_norm_filtro: list[str] | None, mapa_lideres: dict,
+    agg: pd.DataFrame, agg_comp: pd.DataFrame, lideres_norm_filtro: list[str] | None, mapa_lideres: dict,
 ) -> list[dict]:
     insights = []
     total_pessoas = pessoas_escopo.drop_duplicates("nome_normalizado").shape[0]
@@ -407,14 +456,37 @@ def _gerar_insights(
         if sem_conclusao:
             insights.append({"nivel": "atencao", "texto": f"{sem_conclusao} colaborador(es) ainda não concluíram nenhum treinamento."})
 
-    if not agg_cargo.empty and len(agg_cargo) > 1:
-        melhor_cargo = agg_cargo.sort_values(["taxa", "total"], ascending=[False, False]).iloc[0]
-        pior_cargo = agg_cargo.sort_values(["taxa", "total"], ascending=[True, False]).iloc[0]
-        rotulo_melhor = melhor_cargo["rotulo"]
-        rotulo_pior = pior_cargo["rotulo"]
-        insights.append({"nivel": "positivo", "texto": f"Cargo com melhor conclusão: {rotulo_melhor} ({_pct(melhor_cargo['taxa'])})."})
-        if rotulo_pior != rotulo_melhor:
-            insights.append({"nivel": "atencao", "texto": f"Cargo com pior conclusão: {rotulo_pior} ({_pct(pior_cargo['taxa'])})."})
+    if not agg_comp.empty:
+        com_ambos = agg_comp[(agg_comp["total_gestor"] > 0) & (agg_comp["total_equipe"] > 0)].copy()
+        if not com_ambos.empty:
+            com_ambos["diferenca"] = com_ambos["pct_gestor"] - com_ambos["pct_equipe"]
+            acima = com_ambos[com_ambos["diferenca"] > 0].sort_values("diferenca", ascending=False)
+            abaixo = com_ambos[com_ambos["diferenca"] < 0].sort_values("diferenca", ascending=True)
+            if not acima.empty:
+                r = acima.iloc[0]
+                insights.append({
+                    "nivel": "positivo",
+                    "texto": (
+                        f"{r['gestor']} está {_pct(r['diferenca'], 1)} acima da própria equipe "
+                        f"(gestor {_pct(r['pct_gestor'], 1)} × equipe {_pct(r['pct_equipe'], 1)})."
+                    ),
+                })
+            if not abaixo.empty:
+                r = abaixo.iloc[0]
+                insights.append({
+                    "nivel": "atencao",
+                    "texto": (
+                        f"{r['gestor']} está {_pct(abs(r['diferenca']), 1)} abaixo da própria equipe "
+                        f"(gestor {_pct(r['pct_gestor'], 1)} × equipe {_pct(r['pct_equipe'], 1)})."
+                    ),
+                })
+        so_equipe = agg_comp[(agg_comp["total_gestor"] == 0) & (agg_comp["total_equipe"] > 0)]
+        if len(so_equipe) == 1 and len(agg_comp) == 1:
+            r = so_equipe.iloc[0]
+            insights.append({
+                "nivel": "atencao",
+                "texto": f"{r['gestor']} não tem treinamentos próprios atribuídos — só a equipe ({_pct(r['pct_equipe'], 1)}).",
+            })
 
     if not treinos_escopo.empty:
         vencidos = treinos_escopo[treinos_escopo["status"] == "Em Andamento/Vencido"]
