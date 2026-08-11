@@ -338,7 +338,7 @@ def render():
     if perfil == "GESTOR" and lideres_norm_filtro:
         charts.cabecalho(
             "⚖️ Gestor × Média da Equipe",
-            "Seu total de cursos concluídos comparado à média de cursos concluídos por pessoa da sua equipe",
+            "Total e taxa do gestor comparados à média por pessoa, total e taxa de conclusão da equipe",
         )
         gestor_norm = lideres_norm_filtro[0]
         nome_gestor = mapa_lideres.get(gestor_norm, gestor_norm)
@@ -378,37 +378,49 @@ def render():
                 "total_equipe": total_e, "concluidos_equipe": concl_e, "pct_equipe": pct_e,
                 "media_equipe": media_e,
             }])
-            # Gestor = total dele; Equipe = média por pessoa
+            # Gestor = total + taxa; Equipe = média por pessoa + total + taxa
             categorias = ["Gestor", "Média da Equipe"]
             valores = [
                 float(concl_g),
                 float(media_e) if pd.notna(media_e) else 0.0,
             ]
-            textos = [
-                f"{_fmt(concl_g)} concluído" if concl_g == 1 else f"{_fmt(concl_g)} concluídos",
-                (
-                    "Sem dados"
-                    if pd.isna(media_e)
-                    else f"{_fmt(media_e)} por pessoa — {_fmt(concl_e)} no total"
-                ),
-            ]
+            if total_g and pd.notna(pct_g):
+                texto_gestor = (
+                    f"{_fmt(concl_g)} concluído — {_pct(pct_g, 1)} ({_fmt(concl_g)} de {_fmt(total_g)})"
+                    if concl_g == 1
+                    else f"{_fmt(concl_g)} concluídos — {_pct(pct_g, 1)} ({_fmt(concl_g)} de {_fmt(total_g)})"
+                )
+            else:
+                texto_gestor = (
+                    f"{_fmt(concl_g)} concluído" if concl_g == 1 else f"{_fmt(concl_g)} concluídos"
+                )
+            if pd.isna(media_e):
+                texto_equipe = "Sem dados"
+            elif total_e and pd.notna(pct_e):
+                texto_equipe = (
+                    f"{_fmt(media_e)} por pessoa — {_fmt(concl_e)} no total — "
+                    f"{_pct(pct_e, 1)} ({_fmt(concl_e)} de {_fmt(total_e)})"
+                )
+            else:
+                texto_equipe = f"{_fmt(media_e)} por pessoa — {_fmt(concl_e)} no total"
+            textos = [texto_gestor, texto_equipe]
             cores = [CORES["accent"], CORES["categorica"][2]]
             hovers = [
                 (
                     f"<b>Gestor</b><br>{nome_gestor}<br>"
                     f"Concluídos: {_fmt(concl_g)}<br>Atribuídos: {_fmt(total_g)}<br>"
-                    f"Taxa: {_pct(pct_g, 1) if pd.notna(pct_g) else '—'}"
+                    f"Taxa de conclusão: {_pct(pct_g, 1) if pd.notna(pct_g) else '—'}"
                 ),
                 (
                     f"<b>Média da Equipe</b><br>{_fmt(qtd_e)} colaborador(es)<br>"
                     f"Média: {_fmt(media_e) if pd.notna(media_e) else '—'} cursos concluídos/pessoa<br>"
                     f"Total da equipe: {_fmt(concl_e)} de {_fmt(total_e)}<br>"
-                    f"Taxa agregada: {_pct(pct_e, 1) if pd.notna(pct_e) else '—'}"
+                    f"Taxa de conclusão: {_pct(pct_e, 1) if pd.notna(pct_e) else '—'}"
                 ),
             ]
             charts.mostrar(charts.ranking_horizontal(
                 categorias, valores, cores=cores, textos_barra=textos,
-                hovertexts=hovers, altura=260,
+                hovertexts=hovers, altura=280,
             ))
 
         st.write("")
