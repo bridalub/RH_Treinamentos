@@ -17,6 +17,16 @@ def _momento_de_inicio_do_processo() -> str:
 
 _SERVIDOR_INICIADO_EM = _momento_de_inicio_do_processo()
 
+
+@st.cache_resource(show_spinner=False)
+def _sincronizar_relacionamentos_na_subida() -> int:
+    """Na subida do processo: garante seeds de revisão conhecidas e reaplica
+    nos treinamentos já salvos. Assim cloud/deploy não dependem de CSV local
+    gitignored para vínculos como ALEXANDRE COSTA → DAUFENBACH."""
+    from services.treinamentos_service import sincronizar_relacionamentos_por_overrides
+    return sincronizar_relacionamentos_por_overrides()
+
+
 from components.theme import injetar_css, CORES
 from utils.auth import esta_autenticado, usuario_atual, encerrar_sessao, tem_permissao, restaurar_sessao_via_cookie
 from utils.csv_io import ArmazenamentoIndisponivelError
@@ -65,6 +75,9 @@ injetar_css()
 # se não houvesse nenhum colaborador/treinamento cadastrado. Mensagem limpa
 # pro usuário, detalhe técnico só no log.
 try:
+    # antes do login: corrige vínculos conhecidos no storage (local ou remote)
+    _sincronizar_relacionamentos_na_subida()
+
     restaurar_sessao_via_cookie()
 
     if not esta_autenticado():

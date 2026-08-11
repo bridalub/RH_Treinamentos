@@ -162,6 +162,58 @@ def aplicar_override_em_csv(nome_normalizado: str, situacao: str, nome_colaborad
     return int(mascara.sum())
 
 
+def sincronizar_relacionamentos_por_overrides() -> int:
+    """Reaplica overrides (incl. semente) nos treinamentos já gravados.
+
+    Necessário em cloud/deploy: a correção ALEXANDRE COSTA → DAUFENBACH pode
+    existir só no código versionado; sem esta sincronização o CSV/tabela antiga
+    continua com vínculo errado e o gráfico do gestor fica 'sem dados'.
+    Retorna quantas linhas de treinamento foram corrigidas.
+    """
+    from services.revisoes_service import garantir_overrides_semente, carregar_overrides
+    from services.colaboradores_service import carregar_colaboradores
+
+    garantir_overrides_semente()
+    df_ov = carregar_overrides()
+    df = carregar_treinamentos()
+    if df.empty or df_ov.empty:
+        return 0
+
+    mapa_exibicao = _mapa_nomes_exibicao(carregar_colaboradores())
+    alterados = 0
+
+    for _, ov in df_ov.iterrows():
+        if ov.get("decisao") != "RELACIONADO":
+            continue
+        nome_planilha_norm = str(ov.get("nome_planilha_normalizado") or "")
+        alvo_norm = str(ov.get("nome_colaborador_normalizado") or "")
+        if not nome_planilha_norm or not alvo_norm:
+            continue
+
+        exibicao = mapa_exibicao.get(alvo_norm) or str(ov.get("nome_colaborador_exibicao") or "")
+        if not exibicao:
+            continue
+
+        mascara = df["nome_normalizado"] == nome_planilha_norm
+        if not mascara.any():
+            continue
+
+        # Só corrige quando a pessoa relacionada está errada ou vazia — não
+        # rebaixa RELACIONADO_AUTOMATICO correto para MANUAL só por sincronizar.
+        rel_norm = df.loc[mascara, "nome_colaborador_relacionado"].map(normalizar_nome)
+        precisa = (rel_norm != alvo_norm) | (df.loc[mascara, "nome_colaborador_relacionado"].fillna("") == "")
+        n = int(precisa.sum())
+        if n:
+            idxs = df.loc[mascara].index[precisa.to_numpy()]
+            df.loc[idxs, "nome_colaborador_relacionado"] = exibicao
+            df.loc[idxs, "situacao_relacionamento"] = ms.RELACIONADO_MANUAL
+            alterados += n
+
+    if alterados:
+        salvar_treinamentos(df)
+    return alterados
+
+
 def montar_listview(df_treinos: pd.DataFrame, df_colaboradores: pd.DataFrame) -> pd.DataFrame:
     """Junta treinamentos com os dados organizacionais do colaborador relacionado
     (cargo e gestor vêm da base de funcionários; área vem da própria plataforma,

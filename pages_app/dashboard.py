@@ -13,6 +13,7 @@ from components import cards, charts
 from components.theme import CORES, STATUS_TREINAMENTO_COR
 from services.colaboradores_service import carregar_colaboradores
 from services.treinamentos_service import carregar_treinamentos, STATUS_CONCLUIDOS
+from services.revisoes_service import nomes_planilha_do_colaborador
 from services import matching_service as ms
 from utils.csv_io import carregar_estado
 from utils.normalizacao import normalizar_nome
@@ -28,28 +29,58 @@ def _pct(n, casas: int = 0) -> str:
     return formatar_percentual_br(n, casas)
 
 
-def _stats_concluidos(df_treino: pd.DataFrame, nomes: set[str]) -> tuple[int, int, float]:
-    """total, concluídos e taxa % — NaN na taxa quando não há treinamentos atribuídos."""
-    if not nomes or df_treino.empty:
+def _stats_concluidos(
+    df_treino: pd.DataFrame,
+    nomes: set[str] | None = None,
+    nomes_norm: set[str] | None = None,
+    nomes_planilha_norm: set[str] | None = None,
+) -> tuple[int, int, float]:
+    """total, concluídos e taxa % — NaN na taxa quando não há treinamentos atribuídos.
+
+    Aceita três chaves (qualquer combinação):
+    - nomes: grafia de exibição em nome_colaborador_relacionado
+    - nomes_norm: normalizar_nome(relacionado) — cobre (B2C) e variações
+    - nomes_planilha_norm: nome_normalizado da plataforma (ex.: ALEXANDRE COSTA
+      via override), mesmo se o vínculo em CSV ainda estiver defasado
+    """
+    if df_treino.empty:
         return 0, 0, float("nan")
-    base = df_treino[df_treino["nome_colaborador_relacionado"].isin(nomes)]
+    nomes = nomes or set()
+    nomes_norm = nomes_norm or set()
+    nomes_planilha_norm = nomes_planilha_norm or set()
+    if not nomes and not nomes_norm and not nomes_planilha_norm:
+        return 0, 0, float("nan")
+
+    mascara = pd.Series(False, index=df_treino.index)
+    if nomes:
+        mascara |= df_treino["nome_colaborador_relacionado"].isin(nomes)
+    if nomes_norm:
+        mascara |= df_treino["nome_colaborador_relacionado"].map(normalizar_nome).isin(nomes_norm)
+    if nomes_planilha_norm:
+        mascara |= df_treino["nome_normalizado"].isin(nomes_planilha_norm)
+
+    base = df_treino[mascara]
     total = len(base)
     concluidos = int(base["status"].isin(STATUS_CONCLUIDOS).sum()) if total else 0
     taxa = round(concluidos / total * 100, 1) if total else float("nan")
     return total, concluidos, taxa
 
 
-def _rotulo_quantidade(concluidos: int, total: int) -> str:
-    if not total:
-        return "sem dados"
-    return f"{_fmt(concluidos)}/{_fmt(total)}"
-
-
-def _rotulo_percentual_base(concluidos: int, total: int) -> str:
-    if not total:
-        return "Sem treinamentos atribuídos"
-    taxa = round(concluidos / total * 100, 1)
-    return f"{_pct(taxa, 1)} — {_fmt(concluidos)} de {_fmt(total)}"
+def _media_cursos_concluidos(
+    df_treino: pd.DataFrame,
+    nomes: set[str],
+) -> tuple[float, int, int]:
+    """Média de cursos concluídos por pessoa, total concluídos e qtd de pessoas no cálculo."""
+    if not nomes:
+        return float("nan"), 0, 0
+    por_pessoa = []
+    for nome in nomes:
+        _, concluidos, _ = _stats_concluidos(df_treino, nomes={nome}, nomes_norm={normalizar_nome(nome)})
+        por_pessoa.append(concluidos)
+    qtd = len(por_pessoa)
+    total_concluidos = int(sum(por_pessoa))
+    media = round(total_concluidos / qtd, 1) if qtd else float("nan")
+    return media, total_concluidos, qtd
 
 
 def _filtro_multiselect(label: str, opcoes: list[str], key: str) -> list[str] | None:
@@ -301,96 +332,86 @@ def render():
     st.write("")
 
     # -------------------------------------------- gráfico 2: gestor x equipe
-    # Taxa individual do coordenador/líder vs média da equipe (sem contar o
-    # gestor) — mesma lógica da tela Gestores, restrita aos filtros do painel.
+    # Só para perfil GESTOR: total de cursos concluídos do gestor vs média de
+    # cursos concluídos por pessoa na equipe (sem contar o gestor).
     agg_comp = pd.DataFrame()
-    charts.cabecalho(
-        "⚖️ Taxa do Gestor × Taxa da Equipe",
-        "Desempenho individual do coordenador/líder comparado à conclusão da sua equipe (sem contar o gestor)",
-    )
-    if lideres_norm_filtro:
-        lideres_norm = [n for n in lideres_norm_filtro if n in mapa_lideres]
-    else:
-        lideres_norm = sorted(
-            {n for n in pessoas_escopo["gestor_normalizado"] if n and n in mapa_lideres},
-            key=lambda n: mapa_lideres[n],
+    if perfil == "GESTOR" and lideres_norm_filtro:
+        charts.cabecalho(
+            "⚖️ Gestor × Média da Equipe",
+            "Seu total de cursos concluídos comparado à média de cursos concluídos por pessoa da sua equipe",
+        )
+        gestor_norm = lideres_norm_filtro[0]
+        nome_gestor = mapa_lideres.get(gestor_norm, gestor_norm)
+        nomes_gestor = set(validos.loc[validos["nome_normalizado"] == gestor_norm, "nome"])
+        if not nomes_gestor:
+            nomes_gestor = {nome_gestor}
+        # inclui nomes da plataforma ligados a este gestor (semente/override),
+        # ex.: ALEXANDRE COSTA → ALEXANDRE DAUFENBACH — mesmo se o CSV ainda
+        # estiver com vínculo antigo, o filtro por nome_normalizado da planilha
+        # encontra os cursos.
+        planilha_gestor = nomes_planilha_do_colaborador(gestor_norm)
+
+        membros = pessoas_escopo[pessoas_escopo["gestor_normalizado"] == gestor_norm]
+        nomes_equipe = set(membros.loc[membros["nome_normalizado"] != gestor_norm, "nome"])
+
+        total_g, concl_g, pct_g = _stats_concluidos(
+            treinos_filtrados,
+            nomes=nomes_gestor,
+            nomes_norm={gestor_norm},
+            nomes_planilha_norm=planilha_gestor,
+        )
+        media_e, concl_e, qtd_e = _media_cursos_concluidos(treinos_filtrados, nomes_equipe)
+        total_e, _, pct_e = _stats_concluidos(
+            treinos_filtrados,
+            nomes=nomes_equipe,
+            nomes_norm={normalizar_nome(n) for n in nomes_equipe},
         )
 
-    if not lideres_norm:
-        st.caption("Nenhum coordenador ou líder identificado na seleção atual.")
-    else:
-        linhas_comp = []
-        for gestor_norm in lideres_norm:
-            nome_gestor = mapa_lideres[gestor_norm]
-            nomes_gestor = set(validos.loc[validos["nome_normalizado"] == gestor_norm, "nome"])
-            if not nomes_gestor:
-                nomes_gestor = {nome_gestor}
-
-            membros = pessoas_escopo[pessoas_escopo["gestor_normalizado"] == gestor_norm]
-            nomes_equipe = set(membros.loc[membros["nome_normalizado"] != gestor_norm, "nome"])
-
-            total_g, concl_g, pct_g = _stats_concluidos(treinos_filtrados, nomes_gestor)
-            total_e, concl_e, pct_e = _stats_concluidos(treinos_filtrados, nomes_equipe)
-            if total_g == 0 and total_e == 0:
-                continue
-            linhas_comp.append({
+        if concl_g == 0 and (pd.isna(media_e) or media_e == 0):
+            st.caption("Sem cursos concluídos por você ou pela sua equipe nos filtros atuais.")
+        else:
+            agg_comp = pd.DataFrame([{
                 "gestor_norm": gestor_norm,
                 "gestor": nome_gestor,
-                "colaboradores": len(nomes_equipe),
+                "colaboradores": qtd_e,
                 "total_gestor": total_g, "concluidos_gestor": concl_g, "pct_gestor": pct_g,
                 "total_equipe": total_e, "concluidos_equipe": concl_e, "pct_equipe": pct_e,
-            })
-
-        agg_comp = pd.DataFrame(linhas_comp)
-        if agg_comp.empty:
-            st.caption("Sem treinamentos atribuídos ao gestor ou à equipe nos filtros atuais.")
-        else:
-            agg_comp = agg_comp.sort_values(
-                ["concluidos_gestor", "pct_gestor", "pct_equipe"],
-                ascending=[False, False, False],
-                na_position="last",
-            )
-            total_lideres = len(agg_comp)
-            base_exibida = agg_comp.head(15)
-            if len(base_exibida) < total_lideres:
-                st.caption(f"Exibindo {len(base_exibida)} de {total_lideres} coordenadores/líderes da seleção.")
-
-            pct_gestor = [v if pd.notna(v) else 0.0 for v in base_exibida["pct_gestor"]]
-            pct_equipe = [v if pd.notna(v) else 0.0 for v in base_exibida["pct_equipe"]]
-            curtos_gestor = [
-                _rotulo_quantidade(c, t)
-                for c, t in zip(base_exibida["concluidos_gestor"], base_exibida["total_gestor"])
+                "media_equipe": media_e,
+            }])
+            # Gestor = total dele; Equipe = média por pessoa
+            categorias = ["Gestor", "Média da Equipe"]
+            valores = [
+                float(concl_g),
+                float(media_e) if pd.notna(media_e) else 0.0,
             ]
-            curtos_equipe = [
-                _rotulo_quantidade(c, t)
-                for c, t in zip(base_exibida["concluidos_equipe"], base_exibida["total_equipe"])
+            textos = [
+                f"{_fmt(concl_g)} concluído" if concl_g == 1 else f"{_fmt(concl_g)} concluídos",
+                (
+                    "Sem dados"
+                    if pd.isna(media_e)
+                    else f"{_fmt(media_e)} por pessoa — {_fmt(concl_e)} no total"
+                ),
             ]
-            rotulos_gestor = [
-                _rotulo_percentual_base(c, t)
-                for c, t in zip(base_exibida["concluidos_gestor"], base_exibida["total_gestor"])
+            cores = [CORES["accent"], CORES["categorica"][2]]
+            hovers = [
+                (
+                    f"<b>Gestor</b><br>{nome_gestor}<br>"
+                    f"Concluídos: {_fmt(concl_g)}<br>Atribuídos: {_fmt(total_g)}<br>"
+                    f"Taxa: {_pct(pct_g, 1) if pd.notna(pct_g) else '—'}"
+                ),
+                (
+                    f"<b>Média da Equipe</b><br>{_fmt(qtd_e)} colaborador(es)<br>"
+                    f"Média: {_fmt(media_e) if pd.notna(media_e) else '—'} cursos concluídos/pessoa<br>"
+                    f"Total da equipe: {_fmt(concl_e)} de {_fmt(total_e)}<br>"
+                    f"Taxa agregada: {_pct(pct_e, 1) if pd.notna(pct_e) else '—'}"
+                ),
             ]
-            rotulos_equipe = [
-                _rotulo_percentual_base(c, t)
-                for c, t in zip(base_exibida["concluidos_equipe"], base_exibida["total_equipe"])
-            ]
-            hovers_gestor = [
-                f"<b>{g}</b><br>Gestor: {r}<br>Colaboradores na equipe: {_fmt(n)}"
-                for g, r, n in zip(base_exibida["gestor"], rotulos_gestor, base_exibida["colaboradores"])
-            ]
-            hovers_equipe = [
-                f"<b>{g}</b><br>Equipe: {r}<br>Colaboradores na equipe: {_fmt(n)}"
-                for g, r, n in zip(base_exibida["gestor"], rotulos_equipe, base_exibida["colaboradores"])
-            ]
-            charts.mostrar(charts.barras_agrupadas(
-                base_exibida["gestor"].tolist(),
-                {"Gestor": pct_gestor, "Equipe": pct_equipe},
-                cores=[CORES["accent"], CORES["categorica"][2]],
-                textos={"Gestor": curtos_gestor, "Equipe": curtos_equipe},
-                hovertextos={"Gestor": hovers_gestor, "Equipe": hovers_equipe},
-                altura=max(320, 90 * len(base_exibida) + 80),
+            charts.mostrar(charts.ranking_horizontal(
+                categorias, valores, cores=cores, textos_barra=textos,
+                hovertexts=hovers, altura=260,
             ))
 
-    st.write("")
+        st.write("")
 
     # ---------------------------------- situação dos treinamentos + análise (lado a lado)
     col_sit, col_insight = st.columns([0.62, 0.38])
@@ -457,35 +478,34 @@ def _gerar_insights(
             insights.append({"nivel": "atencao", "texto": f"{sem_conclusao} colaborador(es) ainda não concluíram nenhum treinamento."})
 
     if not agg_comp.empty:
-        com_ambos = agg_comp[(agg_comp["total_gestor"] > 0) & (agg_comp["total_equipe"] > 0)].copy()
-        if not com_ambos.empty:
-            com_ambos["diferenca"] = com_ambos["pct_gestor"] - com_ambos["pct_equipe"]
-            acima = com_ambos[com_ambos["diferenca"] > 0].sort_values("diferenca", ascending=False)
-            abaixo = com_ambos[com_ambos["diferenca"] < 0].sort_values("diferenca", ascending=True)
-            if not acima.empty:
-                r = acima.iloc[0]
+        r = agg_comp.iloc[0]
+        media_e = r.get("media_equipe", float("nan"))
+        if r["concluidos_gestor"] > 0 and pd.notna(media_e):
+            if r["concluidos_gestor"] > media_e:
                 insights.append({
                     "nivel": "positivo",
                     "texto": (
-                        f"{r['gestor']} está {_pct(r['diferenca'], 1)} acima da própria equipe "
-                        f"(gestor {_pct(r['pct_gestor'], 1)} × equipe {_pct(r['pct_equipe'], 1)})."
+                        f"Você concluiu {_fmt(r['concluidos_gestor'])} curso(s); "
+                        f"a média da equipe é {_fmt(media_e)} por pessoa."
                     ),
                 })
-            if not abaixo.empty:
-                r = abaixo.iloc[0]
+            elif r["concluidos_gestor"] < media_e:
                 insights.append({
                     "nivel": "atencao",
                     "texto": (
-                        f"{r['gestor']} está {_pct(abs(r['diferenca']), 1)} abaixo da própria equipe "
-                        f"(gestor {_pct(r['pct_gestor'], 1)} × equipe {_pct(r['pct_equipe'], 1)})."
+                        f"Você concluiu {_fmt(r['concluidos_gestor'])} curso(s); "
+                        f"a média da equipe é {_fmt(media_e)} por pessoa."
                     ),
                 })
-        so_equipe = agg_comp[(agg_comp["total_gestor"] == 0) & (agg_comp["total_equipe"] > 0)]
-        if len(so_equipe) == 1 and len(agg_comp) == 1:
-            r = so_equipe.iloc[0]
+            else:
+                insights.append({
+                    "nivel": "positivo",
+                    "texto": f"Seu total de conclusões está alinhado com a média da equipe ({_fmt(media_e)} por pessoa).",
+                })
+        elif r["concluidos_gestor"] == 0 and pd.notna(media_e) and media_e > 0:
             insights.append({
                 "nivel": "atencao",
-                "texto": f"{r['gestor']} não tem treinamentos próprios atribuídos — só a equipe ({_pct(r['pct_equipe'], 1)}).",
+                "texto": f"Você ainda não concluiu cursos próprios — a média da equipe é {_fmt(media_e)} por pessoa.",
             })
 
     if not treinos_escopo.empty:
